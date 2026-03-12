@@ -1,0 +1,20 @@
+voice ain't ready
+
+
+
+uvicorn pentagon_fastapi:app --reload
+
+
+
+
+Fast api Web work
+📍 http://127.0.0.1:8000
+📍 http://127.0.0.1:8000/docs
+
+
+
+Auto-delete input.wav after each run
+
+Add print("Recognizing...") before whisper call for UX
+
+Add os.remove("input.wav") after transcribing to clear old audio
