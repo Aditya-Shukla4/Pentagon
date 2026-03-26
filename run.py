@@ -1,55 +1,128 @@
-from voice_module import recognize_from_microphone, speak
-from Pentagon import ask_Pentagon, setup_pentagon 
-from prompt_config import COLOR_THEME
-from datetime import datetime
+# run.py
+# ─────────────────────────────────────────────────────────────
+# Pentagon entry point:
+#   - Mode selection (voice / text)
+#   - Main interaction loop
+#   - Mode switching mid-session
+# ─────────────────────────────────────────────────────────────
+
 import os
+from datetime import datetime
 
-# 🔹 Terminal saaf
-os.system('cls' if os.name == 'nt' else 'clear')
+from Pentagon import ask_Pentagon, setup_pentagon
+from voice_module import recognize_from_microphone, speak
+from prompt_config import COLOR_THEME
 
-# 🔹 Welcome setup
+# ─────────────────────────────────────────────────────────────
+# Startup
+# ─────────────────────────────────────────────────────────────
+
+# Clear terminal
+os.system("cls" if os.name == "nt" else "clear")
+
+# Run health checks + print banner
+# (also calls check_ollama() internally — will exit if Ollama is down)
 setup_pentagon()
 
-# 🔁 Mode Selection
-mode = input("\n🎮 Enter mode (voice/text): ").strip().lower()
-if mode not in ["voice", "text"]:
-    mode = "text"
+# ─────────────────────────────────────────────────────────────
+# Mode selection
+# ─────────────────────────────────────────────────────────────
 
-# 🚀 DIRECT STARTUP (Bina Wake Word Ki Bakwaas Ke)
-if mode == "voice":
-    print(COLOR_THEME["pentagon"] + "\n🚀 System Online! Direct Voice Mode Activated." + COLOR_THEME["reset"])
-    speak("Haan bhai, system online hai. Bol kya kaam hai?", input_mode="voice")
-
-# 🔁 Main Interaction Loop
 while True:
-    timestamp = datetime.now().strftime("[%H:%M:%S] ")
+    mode = input(
+        COLOR_THEME["info"]
+        + "🎮 Enter mode (voice / text): "
+        + COLOR_THEME["reset"]
+    ).strip().lower()
 
-    # --- INPUT LENA ---
+    if mode in ["voice", "text"]:
+        break
+    print(COLOR_THEME["error"] + "   Invalid mode. Type 'voice' or 'text'." + COLOR_THEME["reset"])
+
+if mode == "voice":
+    print(
+        COLOR_THEME["pentagon"]
+        + "\n🚀 Voice Mode Active — Bol bhai, sun raha hoon!\n"
+        + COLOR_THEME["reset"]
+    )
+    speak("Haan bhai, system online hai. Bol kya kaam hai?", input_mode="voice")
+else:
+    print(
+        COLOR_THEME["pentagon"]
+        + "\n💬 Text Mode Active — Type your question below.\n"
+        + COLOR_THEME["reset"]
+    )
+
+# ─────────────────────────────────────────────────────────────
+# Exit keywords
+# ─────────────────────────────────────────────────────────────
+
+EXIT_COMMANDS = {
+    "exit", "quit", "bye", "band ho ja",
+    "stop", "chup ho ja", "bas", "done"
+}
+
+# ─────────────────────────────────────────────────────────────
+# Main loop
+# ─────────────────────────────────────────────────────────────
+
+while True:
+    timestamp = COLOR_THEME["dim"] + datetime.now().strftime("[%H:%M:%S] ") + COLOR_THEME["reset"]
+
+    # ── Get input ──────────────────────────────────────────────
     if mode == "voice":
-        query = recognize_from_microphone(duration=5) # 5 seconds tak dhyan se sunega
+        query = recognize_from_microphone()
         if not query:
-            continue
-        print(COLOR_THEME["user"] + f"{timestamp}You (Voice): " + COLOR_THEME["reset"] + query)
+            continue  # Nothing heard — keep listening
+        print(
+            timestamp
+            + COLOR_THEME["user"] + "You (Voice): " + COLOR_THEME["reset"]
+            + query
+        )
     else:
-        query = input(COLOR_THEME["user"] + f"\n{timestamp}You: " + COLOR_THEME["reset"]).strip()
+        try:
+            query = input(
+                "\n" + timestamp
+                + COLOR_THEME["user"] + "You: " + COLOR_THEME["reset"]
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            # Ctrl+C or Ctrl+D — clean exit
+            print()
+            query = "exit"
 
-    # --- MODE SWITCH & EXIT CHECK ---
+    if not query:
+        continue
+
+    # ── Mode switch ────────────────────────────────────────────
     if query.lower() == "switch":
         mode = "text" if mode == "voice" else "voice"
-        print(COLOR_THEME["info"] + f"{timestamp}🔁 Mode switched to {mode.upper()}." + COLOR_THEME["reset"])
+        msg = f"🔁 Switched to {mode.upper()} mode."
+        print(timestamp + COLOR_THEME["info"] + msg + COLOR_THEME["reset"])
+        if mode == "voice":
+            speak("Voice mode on. Bol bhai.", input_mode="voice")
         continue
-        
-    # Exit keywords thode badha diye hain
-    if query.lower() in ["exit", "quit", "bye", "band ho ja", "stop", "chup ho ja"]:
-        goodbye = "Theek hai bhai, milte hain phir."
-        print(COLOR_THEME["pentagon"] + f"{timestamp}Pentagon: " + COLOR_THEME["reset"] + goodbye)
+
+    # ── Exit ───────────────────────────────────────────────────
+    if query.lower() in EXIT_COMMANDS:
+        goodbye = "Theek hai bhai, milte hain phir. Take care! 👋"
+        print(
+            timestamp
+            + COLOR_THEME["pentagon"] + "Pentagon: " + COLOR_THEME["reset"]
+            + goodbye
+        )
         speak(goodbye, input_mode=mode)
         break
 
-    # --- PENTAGON AI RESPONSE ---
+    # ── Get Pentagon's response ────────────────────────────────
     try:
-        response = ask_Pentagon(query) 
-        print(COLOR_THEME["pentagon"] + f"{timestamp}Pentagon: " + COLOR_THEME["reset"] + response.strip())
+        response = ask_Pentagon(query)
+        print(
+            "\n" + timestamp
+            + COLOR_THEME["pentagon"] + "Pentagon: " + COLOR_THEME["reset"]
+            + response.strip()
+        )
         speak(response, input_mode=mode)
+
     except Exception as e:
-        print(COLOR_THEME["error"] + f"{timestamp}[!] Pentagon Brain Error: {e}" + COLOR_THEME["reset"])
+        error_msg = f"[!] Pentagon Brain Error: {e}"
+        print(timestamp + COLOR_THEME["error"] + error_msg + COLOR_THEME["reset"])

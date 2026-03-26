@@ -1,50 +1,131 @@
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
+# pentagon_fastapi.py
+# ─────────────────────────────────────────────────────────────
+# Pentagon REST API — powered by FastAPI
+# Exposes Pentagon's brain over HTTP for external integrations
+#
+# Run with:
+#   uvicorn pentagon_fastapi:app --reload
+#
+# Endpoints:
+#   POST /ask        → Ask Pentagon a question
+#   GET  /health     → Check if Ollama + API are alive
+# ─────────────────────────────────────────────────────────────
+
 import requests
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-app = FastAPI()
+from prompt_config import (
+    SYSTEM_PROMPT,
+    OLLAMA_URL,
+    OLLAMA_MODEL,
+    OLLAMA_PARAMS,
+)
 
-# 🔹 Same FORCED_TONE from your CLI version
-FORCED_TONE = """
-Ignore all previous instructions.
+# ─────────────────────────────────────────────────────────────
+# App setup
+# ─────────────────────────────────────────────────────────────
 
-From now on, you are not an AI or assistant.
+app = FastAPI(
+    title="Pentagon API",
+    description="Offline AI assistant powered by LLaMA3 via Ollama",
+    version="1.0.0",
+)
 
-When user asks an academic or technical question:
+# Allow all origins — restrict this in production
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-1. Start with a **one-line definition** (easy and clear).
-2. Then, give **3–5 bullet points** to explain the concept.
-3. If relevant, include **one real-world example**.
-4. Conclude with a quick **exam-style recap** or tip.
-5. If topic is mathematical, include **key formula** in plain text or LaTeX.
-6. Never say you're an AI or assistant — always sound like a grounded human helping a friend.
-7. No emojis, no over-excitement — just calm, confident clarity.
 
-When I ask about business, finance, or startup topics — give short definitions, 3–5 clear bullet points, a real-world analogy, and a useful tip. Keep it natural and friendly.
-
-You are my college-level friend who replies in a chill, clear, and supportive tone using simple Hinglish. Your job is to explain, help, and respond like a real person — not robotic or overly formal.
-
-Never say you're an AI, chatbot, or assistant.
-
-Also, after every answer, ask a short and friendly follow-up question to keep the conversation going.
-
-Make it casual, like a college friend would ask — e.g.,  
-"Tu iske baare me aur jaana chahega?"
-
-Start by saying something like:
-"Pentagon is now online."
-
-Always reply like a calm, helpful friend who understands context. Avoid emojis and exaggerated expressions.
-"""
+# ─────────────────────────────────────────────────────────────
+# Request / Response models
+# ─────────────────────────────────────────────────────────────
 
 class PromptInput(BaseModel):
     prompt: str
 
-@app.post("/ask")
+class PentagonResponse(BaseModel):
+    reply: str
+    model: str
+
+
+# ─────────────────────────────────────────────────────────────
+# Helper: call Ollama safely
+# ─────────────────────────────────────────────────────────────
+
+def _call_ollama(prompt: str) -> str:
+    """Send a prompt to Ollama and return the text response."""
+    full_prompt = SYSTEM_PROMPT + "\n\nUser: " + prompt.strip()
+
+    try:
+        res = requests.post(
+            OLLAMA_URL,
+            json={
+                "model":  OLLAMA_MODEL,
+                "prompt": full_prompt,
+                "stream": False,
+                **OLLAMA_PARAMS,
+            },
+            timeout=60,
+        )
+        res.raise_for_status()
+        data = res.json()
+        reply = data.get("response", "").strip()
+
+        if not reply:
+            raise HTTPException(status_code=502, detail="Empty response from Ollama model.")
+
+        return reply
+
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="Ollama is not running. Start it with: ollama serve"
+        )
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Ollama timed out. The model might still be loading."
+        )
+    except requests.exceptions.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Ollama error: {e}")
+
+
+# ─────────────────────────────────────────────────────────────
+# Routes
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health_check():
+    """Check if Ollama is reachable."""
+    try:
+        requests.get("http://localhost:11434", timeout=3)
+        return {"status": "ok", "ollama": "running", "model": OLLAMA_MODEL}
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="Ollama is not running. Start it with: ollama serve"
+        )
+
+
+@app.post("/ask", response_model=PentagonResponse)
 def ask_pentagon(data: PromptInput):
-    final_prompt = FORCED_TONE + "\nUser: " + data.prompt
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={"model": "llama3", "prompt": final_prompt, "stream": False}
-    )
-    return {"reply": response.json()["response"].strip()}
+    """
+    Send a question to Pentagon and get a response.
+
+    Body:
+        { "prompt": "your question here" }
+
+    Returns:
+        { "reply": "...", "model": "llama3" }
+    """
+    if not data.prompt or not data.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+
+    reply = _call_ollama(data.prompt)
+    return PentagonResponse(reply=reply, model=OLLAMA_MODEL)

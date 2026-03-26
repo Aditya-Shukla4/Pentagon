@@ -1,4 +1,4 @@
 @echo off
-cd /d "C:\Users\Aditya Shukla\Documents\Pentagon"
+cd /d "C:\Personal\Pentagon"
 python run.py
 pause
